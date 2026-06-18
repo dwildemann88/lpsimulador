@@ -48,8 +48,11 @@ import mapaSantaRosa from "./assets/mapa-rs-santa-rosa.png";
 
   Caso o webhook não esteja configurado, o fluxo continua para o WhatsApp.
 */
-const MAKE_WEBHOOK_URL = import.meta.env.VITE_MAKE_WEBHOOK_URL || "";
-const GA_MEASUREMENT_ID = import.meta.env.VITE_GA_MEASUREMENT_ID || "";
+const DEFAULT_MAKE_WEBHOOK_URL = "https://hook.us2.make.com/apm1ykme9gg16x95zlxqftrb87x9rtk7";
+const DEFAULT_GA_MEASUREMENT_ID = "G-XSGE5PYZFF";
+const MAKE_WEBHOOK_URL = import.meta.env.VITE_MAKE_WEBHOOK_URL || DEFAULT_MAKE_WEBHOOK_URL;
+const GA_MEASUREMENT_ID = import.meta.env.VITE_GA_MEASUREMENT_ID || DEFAULT_GA_MEASUREMENT_ID;
+const PRIMARY_LEAD_EVENT = "generate_lead";
 import heroCoupleImg from "./assets/hero-casal-projem.png";
 import heroMockupImg from "./assets/hero-mockup-projem.png";
 import simulatorVisualImg from "./assets/simulator-visual-projem.png";
@@ -240,6 +243,23 @@ function getOrCreateId(key) {
   }
 }
 
+function createRuntimeId(prefix = "lead") {
+  const raw =
+    typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  return `${prefix}_${String(raw).replace(/[^a-zA-Z0-9_-]/g, "")}`;
+}
+
+function safeValue(value, fallback = "") {
+  return value === undefined || value === null ? fallback : value;
+}
+
+function toSheetDate(date = new Date()) {
+  return date.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+}
+
 function collectAttribution() {
   const params = new URLSearchParams(window.location.search);
   const keys = [
@@ -277,29 +297,100 @@ function collectAttribution() {
 
 function buildBasePayload(originForm) {
   const attribution = collectAttribution();
+  const eventId = createRuntimeId("lead");
+  const now = new Date();
 
   return {
-    lead_id: getOrCreateId(`projem_lead_${Date.now()}`),
+    lead_id: eventId,
+    event_id: eventId,
     session_id: getOrCreateId("projem_session_id"),
+    client_id: getOrCreateId("projem_client_id"),
     origem_formulario: originForm,
+    origem: originForm,
+    evento: PRIMARY_LEAD_EVENT,
     evento_origem: "site_projem_solar",
-    timestamp: new Date().toISOString(),
+    fonte_site: "fastidious-dolphin-5916a0.netlify.app",
+    timestamp: now.toISOString(),
+    data: toSheetDate(now),
     pagina_url: window.location.href,
+    page_url: window.location.href,
     pagina_path: window.location.pathname,
     referrer: document.referrer || "",
     user_agent: navigator.userAgent,
     screen_width: window.innerWidth,
     screen_height: window.innerHeight,
-    ...attribution,
+    utm_source: attribution.utm_source || "",
+    utm_medium: attribution.utm_medium || "",
+    utm_campaign: attribution.utm_campaign || "",
+    utm_content: attribution.utm_content || "",
+    utm_term: attribution.utm_term || "",
+    utm_id: attribution.utm_id || "",
+    gclid: attribution.gclid || "",
+    gbraid: attribution.gbraid || "",
+    wbraid: attribution.wbraid || "",
+    fbclid: attribution.fbclid || "",
   };
 }
-
 function getCommercialPriority({ billValue, hasInvoice }) {
   if (hasInvoice && billValue >= 850) return "Alta";
   if (hasInvoice) return "Média Alta";
   if (billValue >= 1000) return "Alta";
   if (billValue >= 650) return "Média";
   return "Baixa";
+}
+
+function normalizeLeadPayload(payload = {}) {
+  const eventId = payload.event_id || payload.lead_id || createRuntimeId("lead");
+  const phone = cleanNumber(payload.telefone || payload.whatsapp || "");
+  const bill = safeValue(payload.conta, payload.valor_conta || "");
+  const city = safeValue(payload.cidade_digitada, payload.cidade || "");
+
+  return {
+    ...payload,
+    lead_id: eventId,
+    event_id: eventId,
+    evento: PRIMARY_LEAD_EVENT,
+    origem: payload.origem || payload.origem_formulario || "site",
+    telefone: phone,
+    whatsapp: phone,
+    conta: bill,
+    valor_conta: bill,
+    cidade_digitada: city,
+    cidade: payload.cidade || city,
+    regiao: payload.regiao || "Santa Rosa/RS e região",
+    ja_fez_orcamento: payload.ja_fez_orcamento || "Não informado",
+    page_url: payload.page_url || payload.pagina_url || window.location.href,
+    pagina_url: payload.pagina_url || payload.page_url || window.location.href,
+    data: payload.data || toSheetDate(),
+    status_lead: payload.status_lead || "Novo",
+    qualified_lead_enviado_ads: payload.qualified_lead_enviado_ads || "Não",
+    valor_conversao: safeValue(payload.valor_conversao, ""),
+  };
+}
+
+function buildTrackingParams(payload = {}) {
+  return {
+    lead_id: payload.lead_id,
+    event_id: payload.event_id,
+    origem_formulario: payload.origem_formulario,
+    origem: payload.origem,
+    valor_conta: payload.valor_conta,
+    conta: payload.conta,
+    tipo_imovel: payload.tipo_imovel,
+    cidade: payload.cidade,
+    cidade_digitada: payload.cidade_digitada,
+    fatura_enviada: payload.fatura_enviada,
+    nivel_intencao: payload.nivel_intencao,
+    prioridade_comercial: payload.prioridade_comercial,
+    utm_source: payload.utm_source,
+    utm_medium: payload.utm_medium,
+    utm_campaign: payload.utm_campaign,
+    utm_content: payload.utm_content,
+    utm_term: payload.utm_term,
+    gclid: payload.gclid,
+    gbraid: payload.gbraid,
+    wbraid: payload.wbraid,
+  };
 }
 
 function trackEvent(name, params = {}) {
@@ -316,7 +407,6 @@ function trackEvent(name, params = {}) {
     window.gtag("event", name, payload);
   }
 }
-
 function initGa() {
   if (!GA_MEASUREMENT_ID || typeof document === "undefined") return;
   if (document.querySelector(`[data-ga-id="${GA_MEASUREMENT_ID}"]`)) return;
@@ -332,7 +422,7 @@ function initGa() {
     window.dataLayer.push(arguments);
   };
   window.gtag("js", new Date());
-  window.gtag("config", GA_MEASUREMENT_ID);
+  window.gtag("config", GA_MEASUREMENT_ID, { send_page_view: false });
 }
 
 async function sendLeadToMake(payload, file) {
@@ -341,7 +431,7 @@ async function sendLeadToMake(payload, file) {
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 2500);
+  const timeout = setTimeout(() => controller.abort(), 8000);
 
   try {
     let response;
@@ -380,27 +470,42 @@ async function sendLeadToMake(payload, file) {
   }
 }
 
-async function submitLead({ payload, file, whatsappMessage, eventName }) {
-  trackEvent(eventName, payload);
+async function registerLeadSubmission(payload, file) {
+  const normalizedPayload = normalizeLeadPayload(payload);
 
-  const makeResponse = await sendLeadToMake(payload, file);
+  trackEvent(PRIMARY_LEAD_EVENT, buildTrackingParams(normalizedPayload));
+
+  const makeResponse = await sendLeadToMake(normalizedPayload, file);
 
   if (makeResponse.ok) {
     trackEvent("make_webhook_success", {
-      origem_formulario: payload.origem_formulario,
-      lead_id: payload.lead_id,
+      origem_formulario: normalizedPayload.origem_formulario,
+      lead_id: normalizedPayload.lead_id,
+      event_id: normalizedPayload.event_id,
     });
   } else {
     trackEvent("make_webhook_failed", {
-      origem_formulario: payload.origem_formulario,
-      lead_id: payload.lead_id,
+      origem_formulario: normalizedPayload.origem_formulario,
+      lead_id: normalizedPayload.lead_id,
+      event_id: normalizedPayload.event_id,
       reason: makeResponse.reason || makeResponse.error || makeResponse.status || "unknown",
     });
   }
 
+  return { payload: normalizedPayload, makeResponse };
+}
+
+async function submitLead({ payload, file, whatsappMessage, eventName }) {
+  const { payload: normalizedPayload } = await registerLeadSubmission(payload, file);
+
+  if (eventName && eventName !== PRIMARY_LEAD_EVENT) {
+    trackEvent(eventName, buildTrackingParams(normalizedPayload));
+  }
+
   trackEvent("whatsapp_click", {
-    origem_formulario: payload.origem_formulario,
-    lead_id: payload.lead_id,
+    origem_formulario: normalizedPayload.origem_formulario,
+    lead_id: normalizedPayload.lead_id,
+    event_id: normalizedPayload.event_id,
   });
 
   window.location.href = buildWhatsappUrl(whatsappMessage);
@@ -742,12 +847,15 @@ function SimulateFlow() {
   }
 
   function buildSimulationPayload() {
-    return {
+    const phoneNumber = cleanNumber(phone);
+
+    return normalizeLeadPayload({
       ...buildBasePayload("simulador_solar"),
-      evento: "generate_lead",
       nome: name.trim(),
-      whatsapp: cleanNumber(phone),
+      telefone: phoneNumber,
+      whatsapp: phoneNumber,
       cidade: city.trim(),
+      cidade_digitada: city.trim(),
       cidade_origem: geo ? "localizacao_automatica" : "manual",
       latitude: geo?.latitude || "",
       longitude: geo?.longitude || "",
@@ -755,6 +863,7 @@ function SimulateFlow() {
       tipo_unidade: unitType,
       tipo_telhado: structureType,
       valor_conta: billValue,
+      conta: billValue,
       valor_conta_formatado: formatMoney(billValue),
       estimativa_economia_mensal: Number(result.monthlySavings.toFixed(2)),
       economia_anual_estimada: Number(result.annualSavings.toFixed(2)),
@@ -768,7 +877,8 @@ function SimulateFlow() {
       consentimento_contato: true,
       etapa_finalizada: "dados_antes_resultado",
       origem_cta: "revelar_estimativa",
-    };
+      ja_fez_orcamento: "Não informado",
+    });
   }
 
   async function revealEstimate() {
@@ -791,31 +901,20 @@ function SimulateFlow() {
     setStep(6);
     setLeadPayload(payload);
 
-    trackEvent("lead_form_completed_before_result", payload);
+    trackEvent("lead_form_completed_before_result", buildTrackingParams(payload));
 
-    const makeResponse = await sendLeadToMake(payload);
-
-    if (makeResponse.ok) {
-      trackEvent("make_webhook_success", {
-        origem_formulario: payload.origem_formulario,
-        lead_id: payload.lead_id,
-      });
-    } else {
-      trackEvent("make_webhook_failed", {
-        origem_formulario: payload.origem_formulario,
-        lead_id: payload.lead_id,
-        reason: makeResponse.reason || makeResponse.error || makeResponse.status || "unknown",
-      });
-    }
+    const { payload: registeredPayload } = await registerLeadSubmission(payload);
+    setLeadPayload(registeredPayload);
 
     window.setTimeout(() => {
       setIsCalculating(false);
       setIsSubmitting(false);
       trackEvent("simulation_result_view", {
-        origem_formulario: payload.origem_formulario,
-        lead_id: payload.lead_id,
-        valor_conta: payload.valor_conta,
-        estimativa_economia_mensal: payload.estimativa_economia_mensal,
+        origem_formulario: registeredPayload.origem_formulario,
+        lead_id: registeredPayload.lead_id,
+        event_id: registeredPayload.event_id,
+        valor_conta: registeredPayload.valor_conta,
+        estimativa_economia_mensal: registeredPayload.estimativa_economia_mensal,
       });
     }, 1600);
   }
@@ -839,6 +938,7 @@ function SimulateFlow() {
       origem_formulario: "simulador_solar",
       origem_cta: "resultado_simulador_whatsapp",
       lead_id: payload.lead_id,
+      event_id: payload.event_id,
     });
 
     window.location.href = buildWhatsappUrl(whatsappMessage);
@@ -1070,12 +1170,15 @@ function InvoiceFlow() {
 
     setIsSubmitting(true);
 
-    const payload = {
+    const phoneNumber = cleanNumber(phone);
+    const payload = normalizeLeadPayload({
       ...buildBasePayload("envio_fatura"),
-      evento: "invoice_submit",
+      evento_secundario: "submit_invoice",
       nome: name.trim(),
-      whatsapp: cleanNumber(phone),
+      telefone: phoneNumber,
+      whatsapp: phoneNumber,
       cidade: city.trim(),
+      cidade_digitada: city.trim(),
       cidade_origem: geo ? "localizacao_automatica" : "manual",
       latitude: geo?.latitude || "",
       longitude: geo?.longitude || "",
@@ -1083,6 +1186,7 @@ function InvoiceFlow() {
       tipo_unidade: unitType,
       tipo_telhado: "",
       valor_conta: billValue || "",
+      conta: billValue || "",
       valor_conta_formatado: billValue ? formatMoney(billValue) : "",
       estimativa_economia_mensal: "",
       economia_anual_estimada: "",
@@ -1101,7 +1205,8 @@ function InvoiceFlow() {
       consentimento_contato: true,
       etapa_finalizada: "formulario_fatura",
       origem_cta: "envio_fatura_whatsapp",
-    };
+      ja_fez_orcamento: "Não informado",
+    });
 
     const whatsappMessage = [
       "Olá, gostaria de enviar minha fatura para uma análise técnica da PROJEM.",
