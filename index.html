@@ -1,11 +1,29 @@
 <!doctype html>
 <html lang="pt-BR">
   <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PROJEM Energia Solar</title>
-    <meta name="description" content="Simule sua economia e envie sua fatura para análise técnica da PROJEM." />
-  </head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PROJEM Energia Solar</title>
+
+
+  <!-- Event snippet -->
+  <script>
+    function gtag_report_conversion(url) {
+      var callback = function () {
+        if (typeof(url) != 'undefined') {
+          window.location = url;
+        }
+      };
+      gtag('event', 'conversion', {
+        'send_to': 'AW-386407787/9PlSCJaCxrwcEOu6oLgB',
+        'value': 1.0,
+        'currency': 'BRL',
+        'event_callback': callback
+      });
+      return false;
+    }
+  </script>
+</head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>

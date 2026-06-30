@@ -1063,9 +1063,19 @@ function SimulateFlow() {
             </label>
           </div>
 
-          <button type="button" className="primaryButton full revealButton" onClick={revealEstimate} disabled={isSubmitting}>
-            {isSubmitting ? "Enviando..." : "Ver minha estimativa"}
-          </button>
+          <button
+  type="button"
+  className="primaryButton full revealButton"
+  onClick={() => {
+    if (window.gtag_report_conversion) {
+      window.gtag_report_conversion();
+    }
+    revealEstimate();
+  }}
+  disabled={isSubmitting}
+>
+  {isSubmitting ? "Enviando..." : "Ver minha estimativa"}
+</button>
         </div>
       )}
 
